@@ -4,7 +4,8 @@ A small Windows tool that watches [Claude Desktop](https://claude.ai/download), 
 
 Claude's answers are often correct but dense. This gives you a live plain-language side-channel without changing anything about Claude itself.
 
-<!-- TODO: demo GIF here — record with ScreenToGif or similar -->
+<img width="1280" height="800" alt="Screenshot_1" src="https://github.com/user-attachments/assets/b3227075-9ade-4264-8409-02a950cc3c55" />
+<img width="1280" height="799" alt="Screenshot_2" src="https://github.com/user-attachments/assets/63f324a3-b85e-481d-8889-dd2113eeaabe" />
 
 ## How it works
 
