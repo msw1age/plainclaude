@@ -37,7 +37,8 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "qwen3:14b"
 POLL_INTERVAL = 1.0
 NOISE_BUTTONS = {"Copy", "Retry", "Edit", "Share", "Good response",
-                 "Bad response", "Read aloud", "More actions"}
+                 "Bad response", "Read aloud", "More actions",
+                 "Previous version", "Next version"}
 MSG_NAME_RE = re.compile(r"^Message \d+ of \d+$")
 ASSISTANT_PREFIX = "Claude responded:"
 USER_PREFIX = "You said:"
@@ -53,10 +54,13 @@ Rules:
 - When the assistant used tools or took actions (ran code, ran a benchmark, searched the web, read or edited files), your rewrite must explicitly say which action was taken and what it showed. Never turn "I ran X and measured Y" into a bare claim that Y is true — the fact that it was measured rather than assumed is information.
 - Lines like [Claude activity: ...] describe actions the assistant took while working. Distinguish two kinds. Markers that describe thinking or analysis ("Thought for 13s", "Analyzed the structure of...") are internal reasoning: ignore them entirely and never open the rewrite by narrating them. Markers that describe concrete external actions (ran a command, edited a file, searched the web) are evidence: mention them naturally whenever they support a claim (e.g. "Claude ran a command to benchmark this and found..."). Never reproduce the bracket notation itself.
 - Preserve every concrete specific: numeric values, intervals and endpoints, parameter settings, and named methods. "Solved numerically via bisection on [a, b]" must keep a and b.
+- Inside LaTeX math, a bare % is a comment character and breaks rendering: write percent signs as \\% inside math, or better, keep percentages in plain text outside the math delimiters.
+- Formulas are copy operations, never rewrites: reproduce every equation character-for-character as it appears in the answer. Never rearrange, simplify, re-derive, or "clean up" a formula — changing $2e/b$ into $2eb$ is a corruption, not a simplification. If the scraped text of a formula is too garbled to copy confidently, write [formula unclear in capture] in its place instead of reconstructing it.
+- Tables appear in the answer in markdown pipe syntax: rows written as | cell | cell |, with a |---|---| separator line under the header. Copy each table verbatim — every | character, the separator line, every row, every value — at the exact point in your rewrite where the table belongs. Never convert a table to plain lines, bullet points, prose, or LaTeX, never drop rows or columns, and never move a table to the end of the response.
 - Code blocks: never reproduce code and never rewrite it line by line — the reader has the original code next to this window. Instead, describe in prose what the code does: its purpose, overall structure, the key functions or steps, important parameter values, and any caveats the assistant stated about it. You may quote a short snippet (a few lines at most) only when a specific line is itself the point. Prose surrounding the code still gets a full rewrite under the rules above. When a response is mostly code, your output should be much shorter than the original — for code, the length rule above does not apply.
 - Write in full sentences. Short section headings are welcome when they help a reader skim. Bullet points are allowed for genuinely enumerable content, but every bullet must be a complete sentence — never a telegraphic fragment.
 - Start directly with the content. No introductory filler ("Here's the breakdown:", "After analyzing...") and no narration of your own rewriting process.
-- Define every symbol and variable in words at its first appearance in your rewrite, even if it was defined in an earlier message — use the context sections to recover the definitions. The reader must never need to open a previous message to know what a symbol means. This includes symbols inside formulas you carry over: if you write $\\mu = pb - q$, say what $p$, $b$, and $q$ each are.
+- Begin your rewrite with a short **Symbols** section: one line per symbol, giving in plain words the meaning of every variable, function, and constant that appears anywhere in your rewrite (e.g. "$p$ — probability of winning the bet", "$f$ — fraction of wealth bet"). Recover meanings from the context sections when the answer itself does not restate them; the reader must never need to open a previous message to know what a symbol means. After drafting, go through your rewrite symbol by symbol and confirm each one has a line in this section. If a symbol's meaning is genuinely stated nowhere in the conversation, its line must say "not defined in the conversation" — never guess a definition.
 - Your rewrite may be nearly as long as the original. Clarity comes from unpacking dense sentences, not from shortening.
 - The text was scraped from a rendered app: mathematical formulas may appear duplicated or garbled (the same formula repeated two or three times in a row in different notations). Silently fix this and write each formula once.
 - Write all mathematics as LaTeX: inline math between single dollar signs like $\\sigma^2$, and standalone equations between double dollar signs like $$E[X] = m$$. Never write raw unicode math symbols outside of LaTeX.
@@ -211,6 +215,62 @@ def group_role(g):
     return None
 
 
+def collect_leaf_text(ctrl, out, depth=0, max_depth=12):
+    if depth > max_depth:
+        return
+    try:
+        kids = ctrl.GetChildren()
+    except Exception:
+        kids = []
+    if not kids:
+        try:
+            n = ctrl.Name
+        except Exception:
+            n = None
+        if n:
+            out.append(n)
+        return
+    for k in kids:
+        collect_leaf_text(k, out, depth + 1, max_depth)
+
+
+def harvest_table(table) -> str:
+    """Convert a UIA TableControl (rows and cells are nested DataItemControls)
+    into a GFM markdown table. Deterministic: the model receives structure
+    instead of a flattened cell stream."""
+    rows = []
+    try:
+        row_ctrls = table.GetChildren()
+    except Exception:
+        return ""
+    for r in row_ctrls:
+        try:
+            if r.ControlType != auto.ControlType.DataItemControl:
+                continue
+            cells = [c for c in r.GetChildren()
+                     if c.ControlType == auto.ControlType.DataItemControl]
+        except Exception:
+            continue
+        vals = []
+        for cell in cells:
+            runs = []
+            collect_leaf_text(cell, runs)
+            txt = "".join(runs).strip()
+            txt = txt.replace("|", "\\|").replace("\n", " ")
+            vals.append(txt if txt else " ")
+        if vals:
+            rows.append(vals)
+    if not rows:
+        return ""
+    ncol = max(len(r) for r in rows)
+    rows = [r + [" "] * (ncol - len(r)) for r in rows]
+    lines = ["| " + " | ".join(rows[0]) + " |",
+             "|" + "|".join(" --- " for _ in range(ncol)) + "|"]
+    for r in rows[1:]:
+        lines.append("| " + " | ".join(r) + " |")
+    return "\n".join(lines)
+
+
 def harvest_paragraphs(ctrl, paragraphs, depth=0, max_depth=50):
     def only_text_below(c, d=0):
         if d > 10:
@@ -271,6 +331,11 @@ def harvest_paragraphs(ctrl, paragraphs, depth=0, max_depth=50):
                 marker = f"[Claude activity: {bn}]"
                 if not paragraphs or paragraphs[-1] != marker:
                     paragraphs.append(marker)
+            continue
+        if ct == auto.ControlType.TableControl:
+            md = harvest_table(c)
+            if md and (not paragraphs or paragraphs[-1] != md):
+                paragraphs.append(md)
             continue
         if ct == auto.ControlType.TextControl or only_text_below(c):
             runs = []
@@ -347,10 +412,15 @@ def get_status_text(pane):
 
 # ------------------------------------------------- Ollama
 
+TABLE_RE = re.compile(r"(?m)((?:^\|.*\|[ \t]*\n?){2,})")
+
+
 def build_prompt(bundle) -> str:
     parts = [REWRITE_INSTRUCTIONS, ""]
     if bundle.get("prev_answer"):
-        parts += ["<previous_assistant_answer>", bundle["prev_answer"],
+        ctx = TABLE_RE.sub("[a table shown in that message]\n",
+                           bundle["prev_answer"])
+        parts += ["<previous_assistant_answer>", ctx,
                   "</previous_assistant_answer>", ""]
     if bundle.get("question"):
         parts += ["<user_question>", bundle["question"],
@@ -481,6 +551,9 @@ HTML_PAGE = """<!DOCTYPE html>
              overflow-x: auto; font-size: 12.5px; }
   .msg code { background: #2e2d2a; padding: 1px 4px; border-radius: 4px; }
   .msg a { color: #8ab4f8; }
+  .msg table { border-collapse: collapse; margin: 8px 0; }
+  .msg th, .msg td { border: 1px solid #4a4944; padding: 4px 10px;
+                     text-align: left; }
   .katex-display { overflow-x: auto; overflow-y: hidden; }
 
   body.light { background: #fafaf7; color: #1a1a1a; }
@@ -489,6 +562,7 @@ HTML_PAGE = """<!DOCTYPE html>
   body.light .msg { border-bottom: 2px solid #e0ddd5; }
   body.light .msg pre, body.light .msg code { background: #f0efe9; }
   body.light .msg a { color: #1a5fb4; }
+  body.light .msg th, body.light .msg td { border-color: #ccc; }
 </style>
 </head>
 <body class="__THEME__">
@@ -504,10 +578,10 @@ function renderContent(text) {
   const stash = [];
   // display math first ($$...$$), then inline ($...$ not preceded/followed by $)
   let t = text.replace(/\\$\\$([\\s\\S]+?)\\$\\$/g, (m) => {
-    stash.push(m); return `\\u0000MATH${stash.length - 1}\\u0000`;
+    stash.push(m.replace(/(^|[^\\\\])%/g, '$1\\\\%')); return `\\u0000MATH${stash.length - 1}\\u0000`;
   });
   t = t.replace(/(?<!\\$)\\$(?!\\$)([^\\$\\n]+?)\\$(?!\\$)/g, (m) => {
-    stash.push(m); return `\\u0000MATH${stash.length - 1}\\u0000`;
+    stash.push(m.replace(/(^|[^\\\\])%/g, '$1\\\\%')); return `\\u0000MATH${stash.length - 1}\\u0000`;
   });
   let html = marked.parse(t);
   html = html.replace(/\\u0000MATH(\\d+)\\u0000/g, (_, i) => stash[+i]);

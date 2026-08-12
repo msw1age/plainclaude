@@ -78,6 +78,10 @@ Design properties, all verifiable in ~600 lines of code:
 
 This project is not affiliated with or endorsed by Anthropic. You are responsible for ensuring your own use complies with [Anthropic's Consumer Terms of Service](https://www.anthropic.com/legal/consumer-terms). The authors' understanding is that a passive, local, read-only accessibility aid that automates no access to the service is consistent with those terms, but that is not legal advice.
 
+## Testing
+
+See [REGRESSION.md](REGRESSION.md) for the standard regression exchange and pass criteria — run it after prompt changes or after re-mapping UI labels following a Claude Desktop update.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
