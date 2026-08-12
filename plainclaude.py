@@ -51,12 +51,13 @@ Rules:
 - Rewrite only the text in <answer_to_rewrite>. The context sections are reference material: do not rewrite them, summarize them, or answer the question yourself.
 - Preserve every piece of information: all claims, numbers, results, caveats, and actions the assistant took (e.g. if it says it ran a benchmark or a test, your rewrite must say so too). Do not drop anything. Do not add anything.
 - When the assistant used tools or took actions (ran code, ran a benchmark, searched the web, read or edited files), your rewrite must explicitly say which action was taken and what it showed. Never turn "I ran X and measured Y" into a bare claim that Y is true — the fact that it was measured rather than assumed is information.
-- Lines like [Claude activity: ...] describe actions the assistant took while working (running commands, editing files, searching, intermediate reasoning steps). Do not reproduce the bracket notation; instead, mention the relevant actions naturally in the rewrite (e.g. "Claude ran a command to benchmark this and found...") whenever they support a claim.
+- Lines like [Claude activity: ...] describe actions the assistant took while working. Distinguish two kinds. Markers that describe thinking or analysis ("Thought for 13s", "Analyzed the structure of...") are internal reasoning: ignore them entirely and never open the rewrite by narrating them. Markers that describe concrete external actions (ran a command, edited a file, searched the web) are evidence: mention them naturally whenever they support a claim (e.g. "Claude ran a command to benchmark this and found..."). Never reproduce the bracket notation itself.
 - Preserve every concrete specific: numeric values, intervals and endpoints, parameter settings, and named methods. "Solved numerically via bisection on [a, b]" must keep a and b.
 - Code blocks: never reproduce code and never rewrite it line by line — the reader has the original code next to this window. Instead, describe in prose what the code does: its purpose, overall structure, the key functions or steps, important parameter values, and any caveats the assistant stated about it. You may quote a short snippet (a few lines at most) only when a specific line is itself the point. Prose surrounding the code still gets a full rewrite under the rules above. When a response is mostly code, your output should be much shorter than the original — for code, the length rule above does not apply.
-- Write in full sentences and flowing prose. Do not compress into fragments or telegraphic bullet points. Use a list only where the original uses a list.
+- Write in full sentences. Short section headings are welcome when they help a reader skim. Bullet points are allowed for genuinely enumerable content, but every bullet must be a complete sentence — never a telegraphic fragment.
+- Start directly with the content. No introductory filler ("Here's the breakdown:", "After analyzing...") and no narration of your own rewriting process.
+- Define every symbol and variable in words at its first appearance in your rewrite, even if it was defined in an earlier message — use the context sections to recover the definitions. The reader must never need to open a previous message to know what a symbol means. This includes symbols inside formulas you carry over: if you write $\\mu = pb - q$, say what $p$, $b$, and $q$ each are.
 - Your rewrite may be nearly as long as the original. Clarity comes from unpacking dense sentences, not from shortening.
-- When the answer uses symbols or variables (like X, m, c, sigma), use the context to state in words what each one means the first time it appears.
 - The text was scraped from a rendered app: mathematical formulas may appear duplicated or garbled (the same formula repeated two or three times in a row in different notations). Silently fix this and write each formula once.
 - Write all mathematics as LaTeX: inline math between single dollar signs like $\\sigma^2$, and standalone equations between double dollar signs like $$E[X] = m$$. Never write raw unicode math symbols outside of LaTeX.
 - Use standard markdown for emphasis, lists, headings, and code (fenced code blocks).
@@ -265,7 +266,8 @@ def harvest_paragraphs(ctrl, paragraphs, depth=0, max_depth=50):
             continue
         if ct == auto.ControlType.ButtonControl:
             bn = (name or "").strip()
-            if bn and bn not in NOISE_BUTTONS and len(bn) < 120:
+            if (bn and bn not in NOISE_BUTTONS and len(bn) < 120
+                    and not re.match(r"Thought for \d+", bn)):
                 marker = f"[Claude activity: {bn}]"
                 if not paragraphs or paragraphs[-1] != marker:
                     paragraphs.append(marker)
@@ -468,20 +470,28 @@ HTML_PAGE = """<!DOCTYPE html>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
 <style>
   body { font-family: 'Segoe UI', sans-serif; font-size: 14px; margin: 0;
-         background: #fafaf7; color: #1a1a1a; }
-  #status { position: sticky; top: 0; z-index: 10; background: #ececec;
-            padding: 6px 10px; font-size: 12px; color: #444;
-            border-bottom: 1px solid #ddd; }
+         background: #1f1e1b; color: #e8e6e1; }
+  #status { position: sticky; top: 0; z-index: 10; background: #2a2926;
+            padding: 6px 10px; font-size: 12px; color: #a8a49c;
+            border-bottom: 1px solid #3a3936; }
   #messages { padding: 10px 14px 30px; }
-  .msg { border-bottom: 2px solid #e0ddd5; padding-bottom: 14px;
+  .msg { border-bottom: 2px solid #3a3936; padding-bottom: 14px;
          margin-bottom: 14px; line-height: 1.5; }
-  .msg pre { background: #f0efe9; padding: 8px; border-radius: 6px;
+  .msg pre { background: #2e2d2a; padding: 8px; border-radius: 6px;
              overflow-x: auto; font-size: 12.5px; }
-  .msg code { background: #f0efe9; padding: 1px 4px; border-radius: 4px; }
+  .msg code { background: #2e2d2a; padding: 1px 4px; border-radius: 4px; }
+  .msg a { color: #8ab4f8; }
   .katex-display { overflow-x: auto; overflow-y: hidden; }
+
+  body.light { background: #fafaf7; color: #1a1a1a; }
+  body.light #status { background: #ececec; color: #444;
+                       border-bottom: 1px solid #ddd; }
+  body.light .msg { border-bottom: 2px solid #e0ddd5; }
+  body.light .msg pre, body.light .msg code { background: #f0efe9; }
+  body.light .msg a { color: #1a5fb4; }
 </style>
 </head>
-<body>
+<body class="__THEME__">
 <div id="status">Starting...</div>
 <div id="messages"></div>
 <script>
@@ -519,11 +529,11 @@ function renderContent(text) {
 </html>"""
 
 
-def run_webview_ui(stop):
+def run_webview_ui(stop, theme="dark"):
     import webview  # pywebview
 
     window = webview.create_window(
-        "Claude — simplified", html=HTML_PAGE,
+        "plainclaude", html=HTML_PAGE.replace("__THEME__", theme),
         width=460, height=680, on_top=True)
 
     def post_status(s):
@@ -595,6 +605,8 @@ def main():
                     help="print the full prompt sent to the model and exit")
     ap.add_argument("--dump-tree", action="store_true",
                     help="print the chat subtree and exit")
+    ap.add_argument("--light", action="store_true",
+                    help="use the light theme (default is dark)")
     args = ap.parse_args()
 
     if args.dump or args.dump_tree:
@@ -621,7 +633,7 @@ def main():
 
     stop = threading.Event()
     try:
-        run_webview_ui(stop)
+        run_webview_ui(stop, theme="light" if args.light else "dark")
     except ImportError:
         print("pywebview not installed (pip install pywebview); "
               "using plain-text fallback window.")

@@ -38,6 +38,7 @@ Debugging helpers:
 ```powershell
 python plainclaude.py --dump        # print the exact prompt that would be sent to the model
 python plainclaude.py --dump-tree   # print the accessibility subtree of the chat
+python plainclaude.py --light       # light theme (default is dark)
 ```
 
 If the tool attaches but extracts nothing, toggle Windows Narrator once (Win+Ctrl+Enter, wait 3 s, again to close) and retry — Chromium keeps accessibility enabled for the app's lifetime after any screen reader is detected.
