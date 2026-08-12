@@ -1,8 +1,9 @@
 # plainclaude
 
+
 A small Windows tool that watches [Claude Desktop](https://claude.ai/download), and every time Claude finishes a response, rewrites it in plainer language with a **local** LLM (via [Ollama](https://ollama.com)) and shows the rewrite in a separate always-on-top window — with markdown and LaTeX rendered properly.
 
-Claude's answers are often correct but dense. This gives you a live plain-language side-channel without changing anything about Claude itself.
+Claude's answers are often correct but dense. This serves as a reading aid, giving you a live plain-language side-channel without changing anything about Claude itself. 
 
 <img width="1280" height="800" alt="Screenshot_1" src="https://github.com/user-attachments/assets/b3227075-9ade-4264-8409-02a950cc3c55" />
 <img width="1280" height="799" alt="Screenshot_2" src="https://github.com/user-attachments/assets/63f324a3-b85e-481d-8889-dd2113eeaabe" />
