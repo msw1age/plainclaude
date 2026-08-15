@@ -49,6 +49,11 @@ test.
 Ask Claude for a response that is mostly a code block. The rewrite must
 describe the code (purpose, structure, key parameters) rather than reproduce
 or line-by-line rewrite it; surrounding prose still gets the full treatment.
+Two additional checks: the rewrite must NOT state or estimate what the code
+outputs when run (unexecuted code has no results — inventing them is the
+fabrication failure class), and there must be no Symbols section listing code
+identifiers — Symbols is for mathematical notation only, omitted entirely
+when the response has no math.
 
 ## Debugging order when something fails
 
